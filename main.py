@@ -32,7 +32,6 @@ def banner():
         + Style.RESET_ALL
     )
 
-
 def load_json(path_or_url):
     """Carga JSON desde archivo local o URL"""
     try:
@@ -60,13 +59,13 @@ def parse_yarn_lock(path):
     return data
 
 
-# ------------------ Paquetes afectados ------------------
+# paquetes afectados
 try:
     AFFECTED = json.loads(Path("affected_packages.json").read_text(encoding="utf-8"))
     AFFECTED = {k: set(v) for k, v in AFFECTED.items()}
 except Exception:
     AFFECTED = {}
-print("[debug] paquetes cargados:", list(AFFECTED.keys())[:5])
+# print("[debug] paquetes cargados:", list(AFFECTED.keys())[:5])
 AFFECTED_PREFIXES = [
     "@art-ws/",
     "@crowdstrike/",
@@ -78,7 +77,7 @@ AFFECTED_PREFIXES = [
 
 SUSPICIOUS_SCRIPTS = {"postinstall", "prepare", "preinstall"}
 
-# ------------------ Escaneo de JS ------------------
+# JS
 JS_IMPORT_RE = re.compile(
     r"""(?m)
     (?:require\(\s*['"](?P<req>[^'"]+)['"]\s*\)
@@ -166,7 +165,7 @@ def scan_js_files(root_path, findings, max_files=None):
             break
 
 
-# ------------------ Lockfile (v6 y v7+) ------------------
+# lockfile para las versiones 6 y 7
 def check_lockfile(lock_json, findings, source_label):
     if not lock_json:
         return
@@ -222,7 +221,7 @@ def check_package_version(name, ver, findings, source):
                 break
 
 
-# ------------------ Node modules ------------------
+# modulos node
 def scan_node_modules(root, findings):
     nm = Path(root) / "node_modules"
     if not nm.exists():
