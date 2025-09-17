@@ -1,0 +1,19 @@
+{
+  "name": "demo-shaihulud-infected",
+  "lockfileVersion": 2,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "demo-shaihulud-infected",
+      "version": "1.0.0",
+      "dependencies": {
+        "@ctrl/ngx-codemirror": "7.0.1"
+      }
+    },
+    "node_modules/@ctrl/ngx-codemirror": {
+      "version": "7.0.1",
+      "resolved": "https://registry.npmjs.org/@ctrl/ngx-codemirror/-/ngx-codemirror-7.0.1.tgz",
+      "integrity": "sha512-DEMOHASH"
+    }
+  }
+}

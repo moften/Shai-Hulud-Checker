@@ -1,0 +1,12 @@
+{
+  "path": "package-lock-test.json",
+  "findings": [
+    {
+      "type": "affected_version",
+      "package": "@ctrl/ngx-codemirror",
+      "version": "7.0.1",
+      "source": "package-lock-test.json",
+      "reason": "match exact affected package/version list"
+    }
+  ]
+}
