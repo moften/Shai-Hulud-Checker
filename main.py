@@ -165,7 +165,6 @@ def scan_js_files(root_path, findings, max_files=None):
             break
 
 
-# lockfile para las versiones 6 y 7
 def check_lockfile(lock_json, findings, source_label):
     if not lock_json:
         return
@@ -178,21 +177,31 @@ def check_lockfile(lock_json, findings, source_label):
             if ver:
                 check_package_version(name, ver, findings, source=source_label)
 
-    # npm v7+ -> "packages"
-    pkgs = lock_json.get("packages") or {}
-    for name, meta in pkgs.items():
-        if not isinstance(meta, dict):
-            continue
-        ver = meta.get("version")
-        if not ver:
-            continue
+    # npm v7+ -> "packages" como dict
+    pkgs = lock_json.get("packages")
+    if isinstance(pkgs, dict):
+        for name, meta in pkgs.items():
+            if not isinstance(meta, dict):
+                continue
+            ver = meta.get("version")
+            if not ver:
+                continue
 
-        # normalizar nombre
-        norm_name = name
-        if norm_name.startswith("node_modules/"):
-            norm_name = norm_name[len("node_modules/") :]
-        if norm_name and norm_name != "":
-            check_package_version(norm_name, ver, findings, source=source_label)
+            norm_name = name
+            if norm_name.startswith("node_modules/"):
+                norm_name = norm_name[len("node_modules/") :]
+            if norm_name and norm_name != "":
+                check_package_version(norm_name, ver, findings, source=source_label)
+
+    # Composer -> "packages" como lista
+    elif isinstance(pkgs, list):
+        for meta in pkgs:
+            if not isinstance(meta, dict):
+                continue
+            name = meta.get("name")
+            ver = meta.get("version")
+            if name and ver:
+                check_package_version(name, ver, findings, source=source_label)
 
 
 def check_package_version(name, ver, findings, source):
