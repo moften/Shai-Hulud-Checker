@@ -28,9 +28,44 @@ def banner():
 """
         + Fore.MAGENTA
         + Style.BRIGHT
-        + "             🏴‍☠️ Shai-Hulud Checker by m10sec@proton.me 🏴‍☠️\n"
+        + "             🏴‍☠️ Shai-Hulud Enhanced Checker by m10sec@proton.me 🏴‍☠️\n"
         + Style.RESET_ALL
     )
+
+
+# Rutas comunes donde buscar archivos de configuración
+COMMON_PATHS = [
+    "package.json",
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "npm-shrinkwrap.json",
+    "composer.json",
+    "composer.lock",
+    ".npmrc",
+    ".yarnrc",
+    ".yarnrc.yml",
+]
+
+# Indicadores de compromiso específicos de Shai-Hulud
+IOC_FILES = [
+    "setup_bun.js",
+    "bun_environment.js",
+    "discussion.yaml",
+    ".github/workflows/discussion.yaml",
+    ".github/workflows/discussion.yml",
+]
+
+# Patrones de runners de GitHub sospechosos
+SUSPICIOUS_RUNNER_PATTERN = re.compile(r"SHA1HULUD", re.I)
+
+# Dominios/IPs sospechosos (añade los que conozcas del incidente)
+SUSPICIOUS_DOMAINS = [
+    # Añade aquí dominios conocidos del incidente
+    "pastebin.com/raw",
+    "paste.ee/r",
+]
+
 
 def load_json(path_or_url):
     """Carga JSON desde archivo local o URL"""
@@ -65,7 +100,7 @@ try:
     AFFECTED = {k: set(v) for k, v in AFFECTED.items()}
 except Exception:
     AFFECTED = {}
-# print("[debug] paquetes cargados:", list(AFFECTED.keys())[:5])
+
 AFFECTED_PREFIXES = [
     "@art-ws/",
     "@crowdstrike/",
@@ -99,7 +134,130 @@ JS_SUSPICIOUS_PATTERNS = {
     "atob": re.compile(r"\batob\s*\(", re.I),
     "base64_buf": re.compile(r"Buffer\.from\([^,]+,\s*['\"]base64['\"]\)", re.I),
     "eval_unescape": re.compile(r"eval\(\s*unescape\(", re.I),
+    "rm_rf": re.compile(r"(rm\s+-rf|rmdir\s+/s|Remove-Item.*-Recurse)", re.I),
 }
+
+
+def scan_ioc_files(root_path, findings):
+    """Busca archivos indicadores de compromiso específicos"""
+    root = Path(root_path)
+    
+    print(f"{Fore.YELLOW}[*] Buscando indicadores de compromiso específicos...")
+    
+    for ioc_file in IOC_FILES:
+        file_path = root / ioc_file
+        if file_path.exists():
+            findings.append({
+                "type": "IOC_FILE_FOUND",
+                "severity": "CRITICAL",
+                "file": str(file_path.relative_to(root)),
+                "reason": f"Archivo IOC '{ioc_file}' detectado - indicador de compromiso Shai-Hulud"
+            })
+            print(f"{Fore.RED}[!] ☠️ IOC CRÍTICO: {ioc_file} encontrado!")
+    
+    # Buscar archivos adicionales con patrones sospechosos
+    for pattern in ["**/setup_bun*.js", "**/bun_*.js", "**/*discussion*.yaml", "**/*discussion*.yml"]:
+        for found_file in root.rglob(pattern):
+            rel_path = str(found_file.relative_to(root))
+            if rel_path not in [f["file"] for f in findings if f["type"] == "IOC_FILE_FOUND"]:
+                findings.append({
+                    "type": "IOC_FILE_PATTERN",
+                    "severity": "HIGH",
+                    "file": rel_path,
+                    "reason": f"Archivo coincide con patrón IOC: {pattern}"
+                })
+
+
+def scan_github_workflows(root_path, findings):
+    """Escanea workflows de GitHub Actions por runners sospechosos"""
+    workflows_dir = Path(root_path) / ".github" / "workflows"
+    
+    if not workflows_dir.exists():
+        return
+    
+    print(f"{Fore.YELLOW}[*] Escaneando GitHub Actions workflows...")
+    
+    for workflow_file in workflows_dir.rglob("*.y*ml"):
+        try:
+            content = workflow_file.read_text(encoding="utf-8", errors="ignore")
+            
+            # Buscar runner SHA1HULUD
+            if SUSPICIOUS_RUNNER_PATTERN.search(content):
+                findings.append({
+                    "type": "SUSPICIOUS_GITHUB_RUNNER",
+                    "severity": "CRITICAL",
+                    "file": str(workflow_file.relative_to(root_path)),
+                    "reason": "Runner 'SHA1HULUD' detectado en workflow - indicador de compromiso confirmado"
+                })
+                print(f"{Fore.RED}[!] ☠️ RUNNER MALICIOSO: SHA1HULUD en {workflow_file.name}")
+            
+            # Buscar dominios sospechosos en workflows
+            for domain in SUSPICIOUS_DOMAINS:
+                if domain in content:
+                    findings.append({
+                        "type": "SUSPICIOUS_DOMAIN_IN_WORKFLOW",
+                        "severity": "HIGH",
+                        "file": str(workflow_file.relative_to(root_path)),
+                        "domain": domain,
+                        "reason": f"Dominio sospechoso '{domain}' encontrado en workflow"
+                    })
+                    
+        except Exception as e:
+            print(f"{Fore.YELLOW}[~] Error leyendo {workflow_file}: {e}")
+
+
+def scan_for_suspicious_deletions(root_path, findings):
+    """Busca scripts que contengan operaciones de borrado de directorios"""
+    root = Path(root_path)
+    
+    print(f"{Fore.YELLOW}[*] Buscando scripts con operaciones de borrado sospechosas...")
+    
+    script_patterns = ["*.sh", "*.bash", "*.js", "*.ps1", "*.bat"]
+    
+    for pattern in script_patterns:
+        for script_file in root.rglob(pattern):
+            try:
+                content = script_file.read_text(encoding="utf-8", errors="ignore")
+                
+                if JS_SUSPICIOUS_PATTERNS["rm_rf"].search(content):
+                    # Buscar si está borrando directorios del usuario
+                    user_dir_patterns = [r"\$HOME", r"~\/", r"%USERPROFILE%", r"os\.homedir\(\)"]
+                    for user_pattern in user_dir_patterns:
+                        if re.search(user_pattern, content, re.I):
+                            findings.append({
+                                "type": "SUSPICIOUS_DELETION",
+                                "severity": "HIGH",
+                                "file": str(script_file.relative_to(root)),
+                                "reason": "Script contiene operaciones de borrado de directorios del usuario"
+                            })
+                            break
+                            
+            except Exception:
+                continue
+
+
+def discover_common_paths(root_path):
+    """Descubre todas las rutas comunes de archivos de configuración"""
+    root = Path(root_path)
+    discovered = {}
+    
+    print(f"{Fore.YELLOW}[*] Descubriendo archivos de configuración...")
+    
+    for common_path in COMMON_PATHS:
+        file_path = root / common_path
+        if file_path.exists():
+            discovered[common_path] = file_path
+            print(f"{Fore.GREEN}[+] Encontrado: {common_path}")
+    
+    # Buscar recursivamente archivos package.json en subdirectorios
+    for pkg_json in root.rglob("package.json"):
+        if "node_modules" not in str(pkg_json):
+            rel_path = str(pkg_json.relative_to(root))
+            if rel_path not in discovered:
+                discovered[rel_path] = pkg_json
+                print(f"{Fore.GREEN}[+] Encontrado: {rel_path}")
+    
+    return discovered
 
 
 def scan_js_files(root_path, findings, max_files=None):
@@ -124,42 +282,47 @@ def scan_js_files(root_path, findings, max_files=None):
                     pkg_name = f"{parts[0]}/{parts[1]}"
 
             if pkg_name in AFFECTED:
-                findings.append(
-                    {
-                        "type": "js_import",
-                        "package_import": pkg,
-                        "package_name": pkg_name,
-                        "file": rel,
-                        "reason": "import/require encontrado en JS",
-                    }
-                )
+                findings.append({
+                    "type": "js_import",
+                    "package_import": pkg,
+                    "package_name": pkg_name,
+                    "file": rel,
+                    "reason": "import/require encontrado en JS",
+                })
             else:
                 for p in AFFECTED_PREFIXES:
                     if pkg_name.startswith(p):
-                        findings.append(
-                            {
-                                "type": "js_import_prefix",
-                                "package_import": pkg,
-                                "package_name": pkg_name,
-                                "file": rel,
-                                "reason": f"import coincide con prefijo '{p}'",
-                            }
-                        )
+                        findings.append({
+                            "type": "js_import_prefix",
+                            "package_import": pkg,
+                            "package_name": pkg_name,
+                            "file": rel,
+                            "reason": f"import coincide con prefijo '{p}'",
+                        })
                         break
 
         # patrones sospechosos
         for name, cre in JS_SUSPICIOUS_PATTERNS.items():
             for sm in cre.finditer(text):
                 snippet = text[sm.start() : sm.end() + 80].splitlines()[0]
-                findings.append(
-                    {
-                        "type": "js_suspicious_code",
-                        "pattern": name,
-                        "file": rel,
-                        "match_snippet": snippet.strip()[:300],
-                        "reason": f"patrón sospechoso '{name}' encontrado",
-                    }
-                )
+                findings.append({
+                    "type": "js_suspicious_code",
+                    "pattern": name,
+                    "file": rel,
+                    "match_snippet": snippet.strip()[:300],
+                    "reason": f"patrón sospechoso '{name}' encontrado",
+                })
+        
+        # Buscar dominios sospechosos en código JS
+        for domain in SUSPICIOUS_DOMAINS:
+            if domain in text:
+                findings.append({
+                    "type": "SUSPICIOUS_DOMAIN_IN_CODE",
+                    "severity": "HIGH",
+                    "file": rel,
+                    "domain": domain,
+                    "reason": f"Dominio sospechoso '{domain}' encontrado en código"
+                })
 
         if max_files and len(findings) >= max_files:
             break
@@ -206,31 +369,28 @@ def check_lockfile(lock_json, findings, source_label):
 
 def check_package_version(name, ver, findings, source):
     if name in AFFECTED and ver in AFFECTED[name]:
-        findings.append(
-            {
-                "type": "affected_version",
-                "package": name,
-                "version": ver,
-                "source": source,
-                "reason": "match exact affected package/version list",
-            }
-        )
+        findings.append({
+            "type": "affected_version",
+            "severity": "CRITICAL",
+            "package": name,
+            "version": ver,
+            "source": source,
+            "reason": "match exact affected package/version list",
+        })
     else:
         for p in AFFECTED_PREFIXES:
             if name.startswith(p):
-                findings.append(
-                    {
-                        "type": "maybe_affected_prefix",
-                        "package": name,
-                        "version": ver,
-                        "source": source,
-                        "reason": f"package matches affected prefix '{p}'",
-                    }
-                )
+                findings.append({
+                    "type": "maybe_affected_prefix",
+                    "severity": "MEDIUM",
+                    "package": name,
+                    "version": ver,
+                    "source": source,
+                    "reason": f"package matches affected prefix '{p}'",
+                })
                 break
 
 
-# modulos node
 def scan_node_modules(root, findings):
     nm = Path(root) / "node_modules"
     if not nm.exists():
@@ -249,20 +409,32 @@ def scan_node_modules(root, findings):
         scripts = pkg.get("scripts", {})
         for s in SUSPICIOUS_SCRIPTS:
             if s in scripts:
-                findings.append(
-                    {
-                        "type": "suspicious_script",
-                        "package": name,
-                        "version": ver,
-                        "script": s,
-                        "script_contents": scripts.get(s),
-                        "source": f"node_modules:{relpath}",
-                    }
-                )
-# completo
+                findings.append({
+                    "type": "suspicious_script",
+                    "severity": "MEDIUM",
+                    "package": name,
+                    "version": ver,
+                    "script": s,
+                    "script_contents": scripts.get(s),
+                    "source": f"node_modules:{relpath}",
+                })
+
+
 def scan_project(path, verbose=False):
     root = Path(path).resolve()
     findings = []
+
+    # Descubrir rutas comunes primero
+    discovered_files = discover_common_paths(root)
+    
+    # Escanear IOCs específicos de Shai-Hulud
+    scan_ioc_files(root, findings)
+    
+    # Escanear GitHub workflows
+    scan_github_workflows(root, findings)
+    
+    # Buscar scripts con borrado sospechoso
+    scan_for_suspicious_deletions(root, findings)
 
     # package.json
     pjson = load_json(root / "package.json")
@@ -275,37 +447,29 @@ def scan_project(path, verbose=False):
         ):
             deps = pjson.get(area, {}) or {}
             for name, ver_spec in deps.items():
-                findings.append(
-                    {
-                        "type": "declared_dep",
-                        "package": name,
-                        "version_spec": ver_spec,
-                        "source": f"package.json:{area}",
-                    }
-                )
+                findings.append({
+                    "type": "declared_dep",
+                    "package": name,
+                    "version_spec": ver_spec,
+                    "source": f"package.json:{area}",
+                })
 
-    # package-lock.json
-    lock = load_json(root / "package-lock.json")
-    if lock:
-        check_lockfile(lock, findings, "package-lock.json")
-
-    # yarn.lock
-    ylock = root / "yarn.lock"
-    if ylock.exists():
-        parsed = parse_yarn_lock(ylock)
-        for name, ver in parsed.items():
-            check_package_version(name, ver, findings, "yarn.lock")
+    # Procesar todos los archivos descubiertos
+    for path_name, file_path in discovered_files.items():
+        if path_name.endswith(".json"):
+            lock = load_json(file_path)
+            if lock:
+                check_lockfile(lock, findings, path_name)
+        elif "yarn.lock" in path_name:
+            parsed = parse_yarn_lock(file_path)
+            for name, ver in parsed.items():
+                check_package_version(name, ver, findings, path_name)
 
     # node_modules
     scan_node_modules(root, findings)
 
     # js files
     scan_js_files(root, findings)
-
-    # npm-shrinkwrap.json
-    shrink = load_json(root / "npm-shrinkwrap.json")
-    if shrink:
-        check_lockfile(shrink, findings, "npm-shrinkwrap.json")
 
     # deduplicar
     uniq, seen = [], set()
@@ -315,6 +479,7 @@ def scan_project(path, verbose=False):
             f.get("package"),
             f.get("version") or f.get("version_spec"),
             f.get("source"),
+            f.get("file"),
         )
         if key in seen:
             continue
@@ -324,7 +489,6 @@ def scan_project(path, verbose=False):
     return uniq
 
 
-# main
 def main():
     banner()
     parser = argparse.ArgumentParser(
@@ -344,7 +508,7 @@ def main():
 
     findings = []
 
-    # remoto (arreglado, ya diferencia los js de los json y las carpetas)
+    # remoto
     if args.path.startswith("http"):
         data = load_json(args.path)
         if data:
@@ -352,41 +516,70 @@ def main():
     else:
         p = Path(args.path)
         if p.is_file() and p.suffix == ".json":
-            # package.json / package-lock.json suelto
             data = load_json(p)
             if data:
                 check_lockfile(data, findings, str(p))
         else:
-            # 👉 Si es carpeta, escanea el proyecto entero
             findings = scan_project(args.path, verbose=args.verbose)
 
-    # clasificar
-    infected = [f for f in findings if f["type"] == "affected_version"]
-    suspicious = [f for f in findings if f["type"] != "affected_version"]
+    # clasificar por severidad
+    critical = [f for f in findings if f.get("severity") == "CRITICAL"]
+    high = [f for f in findings if f.get("severity") == "HIGH"]
+    medium = [f for f in findings if f.get("severity") == "MEDIUM"]
+    others = [f for f in findings if "severity" not in f]
 
     # resumen
-    print("=" * 60)
-    if infected:
-        print(f"{Fore.RED}[!] ☠️ INFECTADO: {len(infected)} paquetes comprometidos")
-        for f in infected:
-            print(f"    - {f['package']}@{f['version']} ({f['source']})")
-    elif suspicious:
-        print(f"{Fore.YELLOW}[~] {len(suspicious)} indicadores sospechosos, sin infección confirmada")
-    else:
-        print(f"{Fore.GREEN}[+] Limpio: no se encontraron hallazgos")
+    print("\n" + "=" * 70)
+    print(f"{Fore.CYAN}{Style.BRIGHT}RESUMEN DEL ESCANEO{Style.RESET_ALL}")
+    print("=" * 70)
+    
+    if critical:
+        print(f"\n{Fore.RED}{Style.BRIGHT}[!] ☠️  CRÍTICO: {len(critical)} indicadores de compromiso confirmados{Style.RESET_ALL}")
+        for f in critical:
+            print(f"{Fore.RED}    ━ {f.get('reason', 'N/A')}")
+            if 'package' in f:
+                print(f"      Paquete: {f['package']}@{f.get('version', 'N/A')}")
+            if 'file' in f:
+                print(f"      Archivo: {f['file']}")
+    
+    if high:
+        print(f"\n{Fore.YELLOW}{Style.BRIGHT}[!] ⚠️  ALTO: {len(high)} hallazgos sospechosos{Style.RESET_ALL}")
+        for f in high[:5]:  # Mostrar solo los primeros 5
+            print(f"{Fore.YELLOW}    ━ {f.get('reason', 'N/A')}")
+    
+    if medium:
+        print(f"\n{Fore.YELLOW}[~] MEDIO: {len(medium)} hallazgos que requieren revisión{Style.RESET_ALL}")
+    
+    if not critical and not high and not medium and not others:
+        print(f"\n{Fore.GREEN}{Style.BRIGHT}[+] ✓ Limpio: no se encontraron indicadores de compromiso{Style.RESET_ALL}")
+    
+    print("\n" + "=" * 70)
 
     if args.verbose:
+        print(f"\n{Fore.CYAN}DETALLES COMPLETOS:{Style.RESET_ALL}\n")
         for f in findings:
             print(json.dumps(f, ensure_ascii=False, indent=2))
 
     try:
+        report = {
+            "scan_date": str(Path(args.output).stat().st_mtime) if Path(args.output).exists() else "N/A",
+            "path": args.path,
+            "summary": {
+                "critical": len(critical),
+                "high": len(high),
+                "medium": len(medium),
+                "total": len(findings)
+            },
+            "findings": findings
+        }
+        
         Path(args.output).write_text(
-            json.dumps({"path": args.path, "findings": findings}, indent=2, ensure_ascii=False),
+            json.dumps(report, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
-        print(f"[i] Informe guardado en {args.output}")
+        print(f"\n{Fore.GREEN}[i] Informe guardado en {args.output}{Style.RESET_ALL}")
     except Exception as e:
-        print("[X] No se pudo guardar informe:", e)
+        print(f"{Fore.RED}[X] No se pudo guardar informe: {e}{Style.RESET_ALL}")
 
 
 if __name__ == "__main__":
